@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>定时提醒器</title>
+  <!-- Tailwind CSS v3 -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Font Awesome -->
+  <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+  <!-- Cordova 核心插件 -->
+  <script src="cordova.js"></script>
+  
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#3b82f6', // 蓝色 - 间隔提醒
+            secondary: '#f97316', // 橙色 - 双间隔循环
+            accent: '#10b981', // 绿色 - 定时闹钟
+            neutral: '#f3f4f6',
+            'neutral-dark': '#9ca3af'
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+          },
+          animation: {
+            'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+          }
+        }
+      }
+    }
+  </script>
+  
+  <style type="text/tailwindcss">
+    @layer utilities {
+      .glass {
+        background: rgba(255, 255, 255, 0.25);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 255, 255, 0.18);
+      }
+      
+      .shadow-soft {
+        box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+      }
+      
+      .slider-thumb::-webkit-slider-thumb {
+        @apply appearance-none w-6 h-6 rounded-full bg-primary cursor-pointer;
+      }
+      
+      .slider-thumb::-moz-range-thumb {
+        @apply appearance-none w-6 h-6 rounded-full bg-primary border-0 cursor-pointer;
+      }
+      
+      .toggle-checkbox:checked {
+        @apply right-0 border-primary;
+      }
+      
+      .toggle-checkbox:checked + .toggle-label {
+        @apply bg-primary;
+      }
+    }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen p-4">
+  <!-- 移动端适配的容器 -->
+  <div class="w-full max-w-md mx-auto">
+    <!-- 顶部状态栏高度占位 -->
+    <div class="h-6"></div>
+    
+    <!-- 最近提醒区域 -->
+    <div id="nextReminderContainer" class="bg-white rounded-2xl glass shadow-soft p-6 mb-6">
+      <div class="text-center">
+        <h2 class="text-xl font-bold text-gray-800 mb-2">最近提醒</h2>
+        <div class="text-4xl font-bold text-primary mb-2" id="nextReminderCountdown">00:00:00</div>
+        <p id="nextReminderText" class="text-gray-600">无活跃提醒</p>
+      </div>
+    </div>
+    
+    <!-- 提醒列表区域 -->
+    <div id="remindersListContainer" class="bg-white rounded-2xl glass shadow-soft p-6 mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="text-xl font-bold text-gray-800">已设置的提醒</h2>
+        <span id="activeRemindersCount" class="bg-primary text-white text-xs font-bold px-2.5 py-0.5 rounded-full">0</span>
+      </div>
+      <!-- 滚动容器 -->
+      <div id="remindersList" class="space-y-4 overflow-y-auto pr-2 max-h-[200px]">
+        <!-- 无提醒时显示提示信息 -->
+        <div id="noRemindersMessage" class="text-center text-gray-500 py-8">
+          暂无设置的提醒
+        </div>
+        <!-- 提醒列表项将通过JavaScript动态添加 -->
+      </div>
+    </div>
+    
+    <!-- 设置窗口 -->
+    <div class="bg-white rounded-2xl glass shadow-soft p-6 mb-16">
+      <!-- 提醒类型选择 -->
+      <div class="mb-6">
+        <label class="block text-gray-700 font-medium mb-2">提醒类型</label>
+        <div class="flex flex-wrap gap-2">
+          <label class="inline-flex items-center p-2 border border-gray-200 rounded-lg">
+            <input type="radio" name="reminderType" value="interval" class="text-primary focus:ring-primary" checked>
+            <span class="ml-2 text-gray-700">间隔提醒</span>
+          </label>
+          <label class="inline-flex items-center p-2 border border-gray-200 rounded-lg">
+            <input type="radio" name="reminderType" value="doubleInterval" class="text-secondary focus:ring-secondary">
+            <span class="ml-2 text-gray-700">双间隔循环</span>
+          </label>
+          <label class="inline-flex items-center p-2 border border-gray-200 rounded-lg">
+            <input type="radio" name="reminderType" value="alarm" class="text-accent focus:ring-accent">
+            <span class="ml-2 text-gray-700">定时闹钟</span>
+          </label>
+        </div>
+      </div>
+      
+      <!-- 时间设置 - 间隔提醒 -->
+      <div id="intervalSettings" class="mb-6">
+        <div class="flex items-center justify-between mb-2">
+          <label for="timeInterval" class="text-gray-700 font-medium">提醒间隔</label>
+          <span id="timeDisplay" class="text-primary font-bold text-xl">5 分钟</span>
+        </div>
+        
+        <!-- 分钟选择 -->
+        <div class="mb-4">
+          <input 
+            type="range" 
+            id="minutesInterval" 
+            min="1" 
+            max="60" 
+            value="5" 
+            class="w-full h-2 bg-neutral rounded-lg appearance-none cursor-pointer slider-thumb"
+          >
+          <div class="flex justify-between text-xs text-neutral-dark mt-1">
+            <span>1分钟</span>
+            <span>30分钟</span>
+            <span>60分钟</span>
+          </div>
+        </div>
+        
+        <!-- 小时选择 -->
+        <div>
+          <input 
+            type="range" 
+            id="hoursInterval" 
+            min="0" 
+            max="23" 
+            value="0" 
+            class="w-full h-2 bg-neutral rounded-lg appearance-none cursor-pointer slider-thumb"
+          >
+          <div class="flex justify-between text-xs text-neutral-dark mt-1">
+            <span>0小时</span>
+            <span>12小时</span>
+            <span>23小时</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 时间设置 - 双间隔循环 -->
+      <div id="doubleIntervalSettings" class="mb-6 hidden">
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-gray-700 font-medium">间隔 A</label>
+          <span id="timeDisplayA" class="text-secondary font-bold text-xl">5 分钟</span>
+        </div>
+        
+        <!-- 分钟选择 A -->
+        <div class="mb-6">
+          <input 
+            type="range" 
+            id="minutesIntervalA" 
+            min="1" 
+            max="120" 
+            value="5" 
+            class="w-full h-2 bg-neutral rounded-lg appearance-none cursor-pointer slider-thumb"
+          >
+          <div class="flex justify-between text-xs text-neutral-dark mt-1">
+            <span>1分钟</span>
+            <span>60分钟</span>
+            <span>120分钟</span>
+          </div>
+        </div>
+        
+        <div class="flex items-center justify-between mb-2">
+          <label class="text-gray-700 font-medium">间隔 B</label>
+          <span id="timeDisplayB" class="text-secondary font-bold text-xl">10 分钟</span>
+        </div>
+        
+        <!-- 分钟选择 B -->
+        <div>
+          <input 
+            type="range" 
+            id="minutesIntervalB" 
+            min="1" 
+            max="120" 
+            value="10" 
+            class="w-full h-2 bg-neutral rounded-lg appearance-none cursor-pointer slider-thumb"
+          >
+          <div class="flex justify-between text-xs text-neutral-dark mt-1">
+            <span>1分钟</span>
+            <span>60分钟</span>
+            <span>120分钟</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- 时间设置 - 定时闹钟 -->
+      <div id="alarmSettings" class="mb-6 hidden">
+        <label class="block text-gray-700 font-medium mb-2">闹钟时间</label>
+        <div class="flex space-x-4">
+          <select id="alarmHour" class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent">
+            <!-- 动态生成小时选项 -->
+          </select>
+          <select id="alarmMinute" class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-accent focus:border-transparent">
+            <!-- 动态生成分钟选项 -->
+          </select>
+        </div>
+      </div>
+      
+      <!-- 循环选项 -->
+      <div class="mb-6">
+        <div class="flex items-center justify-between">
+          <label for="loopToggle" class="text-gray-700 font-medium">循环提醒</label>
+          <div class="relative inline-block w-12 align-middle select-none">
+            <input 
+              type="checkbox" 
+              id="loopToggle" 
+              class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border border-4 appearance-none cursor-pointer right-6 top-0"
+            >
+            <label for="loopToggle" class="toggle-label block overflow-hidden h-6 rounded-full bg-neutral cursor-pointer"></label>
+          </div>
+        </div>
+        <p class="text-sm text-gray-500 mt-1">开启后将按照设定间隔持续提醒</p>
+      </div>
+      
+      <!-- 音效选择 -->
+      <div class="mb-6">
+        <label for="soundSelect" class="block text-gray-700 font-medium mb-2">提醒音效</label>
+        <div class="flex space-x-2 mb-2">
+          <select 
+            id="soundSelect" 
+            class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+          >
+            <option value="sounds/soft.mp3">提示音 1 (柔和)</option>
+            <option value="sounds/electronic.mp3">提示音 2 (电子)</option>
+            <option value="sounds/alarm.mp3">提示音 3 (警报)</option>
+            <option value="sounds/light.mp3">提示音 4 (轻快)</option>
+            <option value="sounds/ringtone.mp3">提示音 5 (清脆铃声)</option>
+            <option value="sounds/dingdong.mp3">提示音 6 (叮咚)</option>
+            <option value="custom">自定义音效</option>
+          </select>
+          <input type="file" id="customSound" accept="audio/*" class="hidden">
+          <button id="customSoundBtn" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
+            <i class="fa fa-upload"></i>
+          </button>
+        </div>
+        <div id="customSoundName" class="text-sm text-gray-500"></div>
+      </div>
+      
+      <!-- 自定义提醒文本 -->
+      <div class="mb-6">
+        <label for="reminderText" class="block text-gray-700 font-medium mb-2">提醒文本</label>
+        <input 
+          type="text" 
+          id="reminderText" 
+          placeholder="请输入提醒内容..." 
+          class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
+        >
+        <p class="text-sm text-gray-500 mt-1">留空将使用默认提醒文本</p>
+      </div>
+      
+      <!-- 操作按钮 -->
+      <div class="flex space-x-4">
+        <button 
+          id="addReminderBtn" 
+          class="flex-1 bg-primary hover:bg-blue-600 text-white font-bold py-3 px-4 rounded-lg transition-all duration-300 flex items-center justify-center"
+        >
+          <i class="fa fa-plus mr-2"></i> 添加提醒
+        </button>
+        <button 
+          id="clearAllBtn" 
+          class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-bold py-3 px-4 rounded-lg transition-all duration-300 flex items-center justify-center"
+        >
+          <i class="fa fa-trash mr-2"></i> 清除全部
+        </button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 提醒弹窗 -->
+  <div id="reminderModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+    <div class="bg-white rounded-2xl p-8 max-w-md w-full mx-4 transform transition-all animate-pulse-slow">
+      <div class="text-center">
+        <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-secondary bg-opacity-20 mb-4">
+          <i class="fa fa-bell text-secondary text-2xl"></i>
+        </div>
+        <h2 class="text-2xl font-bold text-gray-800 mb-2">时间到了！</h2>
+        <p id="reminderModalText" class="text-gray-600 mb-6">这是您设置的提醒</p>
+        <button 
+          id="dismissBtn" 
+          class="bg-primary hover:bg-blue-600 text-white font-bold py-3 px-6 rounded-lg transition-all duration-300"
+        >
+          知道了
+        </button>
+      </div>
+    </div>
+  </div>
+  
+  <!-- 音频元素 -->
+  <audio id="reminderSound" preload="auto"></audio>
+  
+  <script>
+    // Cordova 设备就绪事件
+    document.addEventListener('deviceready', onDeviceReady, false);
+    
+    function onDeviceReady() {
+      console.log('设备已就绪');
+      // 初始化应用
+      initApp();
+      
+      // 配置音频播放权限
+      if (window.cordova && window.cordova.plugins && window.cordova.plugins.notification) {
+        // 请求通知权限
+        cordova.plugins.notification.local.requestPermission();
+      }
+    }
+    
+    // 获取DOM元素
+    const reminderTypeRadios = document.querySelectorAll('input[name="reminderType"]');
+    const intervalSettings = document.getElementById('intervalSettings');
+    const doubleIntervalSettings = document.getElementById('doubleIntervalSettings');
+    const alarmSettings = document.getElementById('alarmSettings');
+    const alarmHour = document.getElementById('alarmHour');
+    const alarmMinute = document.getElementById('alarmMinute');
+    const minutesIntervalInput = document.getElementById('minutesInterval');
+    const hoursIntervalInput = document.getElementById('hoursInterval');
+    const timeDisplay = document.getElementById('timeDisplay');
+    
+    // 双间隔相关元素
+    const minutesIntervalAInput = document.getElementById('minutesIntervalA');
+    const timeDisplayA = document.getElementById('timeDisplayA');
+    const minutesIntervalBInput = document.getElementById('minutesIntervalB');
+    const timeDisplayB = document.getElementById('timeDisplayB');
+    
+    const loopToggle = document.getElementById('loopToggle');
+    const soundSelect = document.getElementById('soundSelect');
+    const customSoundInput = document.getElementById('customSound');
+    const customSoundBtn = document.getElementById('customSoundBtn');
+    const customSoundName = document.getElementById('customSoundName');
+    const reminderTextInput = document.getElementById('reminderText');
+    const addReminderBtn = document.getElementById('addReminderBtn');
+    const clearAllBtn = document.getElementById('clearAllBtn');
+    const reminderModal = document.getElementById('reminderModal');
+    const reminderModalText = document.getElementById('reminderModalText');
+    const dismissBtn = document.getElementById('dismissBtn');
+    
+    // 多提醒相关元素
+    const nextReminderContainer = document.getElementById('nextReminderContainer');
+    const nextReminderCountdown = document.getElementById('nextReminderCountdown');
+    const nextReminderText = document.getElementById('nextReminderText');
+    const remindersListContainer = document.getElementById('remindersListContainer');
+    const remindersList = document.getElementById('remindersList');
+    const activeRemindersCount = document.getElementById('activeRemindersCount');
+    const noRemindersMessage = document.getElementById('noRemindersMessage');
+    
+    // 自定义音效变量
+    let customSoundUrl = null;
+    let savedCustomSoundName = '';
+    
+    // 提醒列表数据结构
+    let reminders = [];
+    let nextReminderTimer = null;
+    
+    // 初始化应用
+    function initApp() {
+      initAlarmTimeSelectors();
+      updateTimeDisplay();
+      updateTimeDisplayA();
+      updateTimeDisplayB();
+      
+      // 从本地存储加载提醒
+      loadReminders();
+      
+      // 恢复保存的音效选择
+      const savedSound = localStorage.getItem('selectedSound');
+      if (savedSound) {
+        soundSelect.value = savedSound;
+        const event = new Event('change');
+        soundSelect.dispatchEvent(event);
+        
+        // 如果是自定义音效，恢复显示
+        if (savedSound === 'custom') {
+          savedCustomSoundName = localStorage.getItem('customSoundName') || '';
+          if (savedCustomSoundName) {
+            document.getElementById('customSoundName').textContent = `已选择: ${savedCustomSoundName}`;
+            customSoundUrl = localStorage.getItem('customSoundUrl');
+          }
+        }
+      }
+      
+      updateRemindersList();
+      updateNextReminder();
+      
+      // 监听返回按钮
+      document.addEventListener("backbutton", handleBackButton, false);
+    }
+    
+    // 处理返回按钮
+    function handleBackButton() {
+      if (reminderModal.classList.contains('hidden')) {
+        // 如果弹窗隐藏，询问是否退出
+        navigator.notification.confirm(
+          '确定要退出应用吗？',
+          function(buttonIndex) {
+            if (buttonIndex === 1) {
+              navigator.app.exitApp();
+            }
+          },
+          '退出应用',
+          ['确定', '取消']
+        );
+      } else {
+        // 如果弹窗显示，关闭弹窗
+        dismissBtn.click();
+      }
+    }
+    
+    // 初始化闹钟时间选择器
+    function initAlarmTimeSelectors() {
+      // 生成小时选项 (0-23)
+      for (let i = 0; i < 24; i++) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = i.toString().padStart(2, '0');
+        alarmHour.appendChild(option);
+      }
+      
+      // 生成分钟选项 (0-59，每5分钟一个选项)
+      for (let i = 0; i < 60; i += 5) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = i.toString().padStart(2, '0');
+        alarmMinute.appendChild(option);
+      }
+      
+      // 设置默认时间为当前时间往后30分钟
+      const now = new Date();
+      let hour = now.getHours();
+      let minute = now.getMinutes() + 30;
+      
+      if (minute >= 60) {
+        minute -= 60;
+        hour += 1;
+        if (hour >= 24) hour = 0;
+      }
+      
+      // 四舍五入到最近的5分钟
+      minute = Math.ceil(minute / 5) * 5;
+      if (minute >= 60) {
+        minute = 0;
+        hour += 1;
+        if (hour >= 24) hour = 0;
+      }
+      
+      alarmHour.value = hour;
+      alarmMinute.value = minute;
+    }
+    
+    // 生成唯一ID
+    function generateId() {
+      return Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
+    }
+    
+    // 格式化时间显示
+    function formatTime(milliseconds) {
+      const hours = Math.floor(milliseconds / 3600000);
+      const minutes = Math.floor((milliseconds % 3600000) / 60000);
+      const seconds = Math.floor((milliseconds % 60000) / 1000);
+      
+      return [
+        hours.toString().padStart(2, '0'),
+        minutes.toString().padStart(2, '0'),
+        seconds.toString().padStart(2, '0')
+      ].join(':');
+    }
+    
+    // 格式化时间间隔显示
+    function formatDuration(milliseconds) {
+      const hours = Math.floor(milliseconds / 3600000);
+      const minutes = Math.floor((milliseconds % 3600000) / 60000);
+      
+      let displayText = '';
+      if (hours > 0) {
+        displayText += `${hours} ${hours === 1 ? '小时' : '小时'}`;
+      }
+      if (minutes > 0) {
+        displayText += `${displayText ? ' ' : ''}${minutes} ${minutes === 1 ? '分钟' : '分钟'}`;
+      }
+      
+      return displayText || '0 分钟';
+    }
+    
+    // 计算闹钟时间与当前时间的差值（毫秒）
+    function calculateAlarmTimeDifference(hour, minute) {
+      const now = new Date();
+      const alarmTime = new Date();
+      
+      alarmTime.setHours(hour, minute, 0, 0);
+      
+      // 如果闹钟时间已过今天，则设置为明天
+      if (alarmTime <= now) {
+        alarmTime.setDate(alarmTime.getDate() + 1);
+      }
+      
+      return alarmTime - now;
+    }
+    
+    // 更新时间显示
+    function updateTimeDisplay() {
+      const hours = parseInt(hoursIntervalInput.value);
+      const minutes = parseInt(minutesIntervalInput.value);
+      
+      let displayText = '';
+      if (hours > 0) {
+        displayText += `${hours} ${hours === 1 ? '小时' : '小时'}`;
+      }
+      if (minutes > 0) {
+        displayText += `${displayText ? ' ' : ''}${minutes} ${minutes === 1 ? '分钟' : '分钟'}`;
+      }
+      
+      timeDisplay.textContent = displayText || '5 分钟';
+    }
+    
+    // 更新时间显示 A
+    function updateTimeDisplayA() {
+      const minutes = parseInt(minutesIntervalAInput.value);
+      let hours = Math.floor(minutes / 60);
+      let mins = minutes % 60;
+      
+      let displayText = '';
+      if (hours > 0) {
+        displayText += `${hours} ${hours === 1 ? '小时' : '小时'}`;
+      }
+      if (mins > 0) {
+        displayText += `${displayText ? ' ' : ''}${mins} ${mins === 1 ? '分钟' : '分钟'}`;
+      }
+      
+      timeDisplayA.textContent = displayText || '5 分钟';
+    }
+    
+    // 更新时间显示 B
+    function updateTimeDisplayB() {
+      const minutes = parseInt(minutesIntervalBInput.value);
+      let hours = Math.floor(minutes / 60);
+      let mins = minutes % 60;
+      
+      let displayText = '';
+      if (hours > 0) {
+        displayText += `${hours} ${hours === 1 ? '小时' : '小时'}`;
+      }
+      if (mins > 0) {
+        displayText += `${displayText ? ' ' : ''}${mins} ${mins === 1 ? '分钟' : '分钟'}`;
+      }
+      
+      timeDisplayB.textContent = displayText || '10 分钟';
+    }
+    
+    // 事件监听 - 提醒类型切换
+    reminderTypeRadios.forEach(radio => {
+      radio.addEventListener('change', function() {
+        if (this.value === 'interval') {
+          intervalSettings.classList.remove('hidden');
+          doubleIntervalSettings.classList.add('hidden');
+          alarmSettings.classList.add('hidden');
+        } else if (this.value === 'doubleInterval') {
+          intervalSettings.classList.add('hidden');
+          doubleIntervalSettings.classList.remove('hidden');
+          alarmSettings.classList.add('hidden');
+        } else {
+          intervalSettings.classList.add('hidden');
+          doubleIntervalSettings.classList.add('hidden');
+          alarmSettings.classList.remove('hidden');
+        }
+      });
+    });
+    
+    // 时间间隔输入事件
+    minutesIntervalInput.addEventListener('input', updateTimeDisplay);
+    hoursIntervalInput.addEventListener('input', updateTimeDisplay);
+    
+    // 双间隔输入事件
+    minutesIntervalAInput.addEventListener('input', updateTimeDisplayA);
+    minutesIntervalBInput.addEventListener('input', updateTimeDisplayB);
+    
+    // 音效选择事件
+    soundSelect.addEventListener('change', function() {
+      if (this.value === 'custom') {
+        customSoundBtn.disabled = false;
+      } else {
+        customSoundBtn.disabled = true;
+        // 清除保存的自定义音效
+        customSoundName.textContent = '';
+        customSoundUrl = null;
+        localStorage.removeItem('customSoundUrl');
+        localStorage.removeItem('customSoundName');
+      }
+      // 保存当前选择
+      localStorage.setItem('selectedSound', this.value);
+    });
+    
+    // 自定义音效按钮点击事件
+    customSoundBtn.addEventListener('click', function() {
+      customSoundInput.click();
+    });
+    
+    // 自定义音效文件选择事件
+    customSoundInput.addEventListener('change', function(e) {
+      if (e.target.files && e.target.files[0]) {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        
+        reader.onload = function(e) {
+          customSoundUrl = e.target.result;
+          // 保存到localStorage
+          localStorage.setItem('customSoundUrl', customSoundUrl);
+          localStorage.setItem('customSoundName', file.name);
+          savedCustomSoundName = file.name;
+          customSoundName.textContent = `已选择: ${file.name}`;
+        };
+        
+        reader.readAsDataURL(file);
+        // 自动选择"自定义音效"选项
+        soundSelect.value = 'custom';
+        // 保存选择
+        localStorage.setItem('selectedSound', 'custom');
+      }
+    });
+    
+    // 添加提醒按钮点击事件
+    addReminderBtn.addEventListener('click', function() {
+      let totalTime, reminderType, alarmHourValue, alarmMinuteValue;
+      let totalTimeA, totalTimeB;
+      
+      // 根据选择的提醒类型计算时间
+      if (document.querySelector('input[name="reminderType"][value="interval"]').checked) {
+        const hours = parseInt(hoursIntervalInput.value);
+        const minutes = parseInt(minutesIntervalInput.value);
+        
+        // 验证时间设置
+        if (hours === 0 && minutes === 0) {
+          navigator.notification.alert('请设置提醒时间', null, '提示');
+          return;
+        }
+        
+        totalTime = (hours * 60 * 60 + minutes * 60) * 1000;
+        reminderType = 'interval';
+      } else if (document.querySelector('input[name="reminderType"][value="doubleInterval"]').checked) {
+        const minutesA = parseInt(minutesIntervalAInput.value);
+        const minutesB = parseInt(minutesIntervalBInput.value);
+        
+        // 验证时间设置
+        if (minutesA === 0 || minutesB === 0) {
+          navigator.notification.alert('请设置两个间隔的时间', null, '提示');
+          return;
+        }
+        
+        totalTimeA = minutesA * 60 * 1000;
+        totalTimeB = minutesB * 60 * 1000;
+        totalTime = totalTimeA; // 初始使用间隔A
+        reminderType = 'doubleInterval';
+      } else {
+        alarmHourValue = parseInt(alarmHour.value);
+        alarmMinuteValue = parseInt(alarmMinute.value);
+        totalTime = calculateAlarmTimeDifference(alarmHourValue, alarmMinuteValue);
+        reminderType = 'alarm';
+      }
+      
+      // 验证自定义音效
+      if (soundSelect.value === 'custom' && !customSoundUrl) {
+        navigator.notification.alert('请选择自定义音效文件', null, '提示');
+        return;
+      }
+      
+      // 创建新提醒
+      const reminderId = generateId();
+      const reminderText = reminderTextInput.value.trim() || '这是您设置的提醒';
+      const loop = loopToggle.checked;
+      
+      // 准备音效
+      let soundSrc = soundSelect.value;
+      if (soundSrc === 'custom') {
+        soundSrc = customSoundUrl;
+      }
+      
+      // 创建音频元素
+      const audio = new Audio(soundSrc);
+      
+      // 添加到提醒列表
+      const reminder = {
+        id: reminderId,
+        text: reminderText,
+        type: reminderType,
+        totalTime: totalTime,
+        remainingTime: totalTime,
+        loop: loop,
+        alarmHour: alarmHourValue,
+        alarmMinute: alarmMinuteValue,
+        // 双间隔相关属性
+        totalTimeA: totalTimeA,
+        totalTimeB: totalTimeB,
+        currentInterval: 'A', // 当前使用的间隔，A或B
+        soundSrc: soundSrc,
+        timer: null,
+        countdownTimer: null,
+        isRunning: true
+      };
+      
+      // 设置定时器
+      reminder.timer = setTimeout(function() {
+        triggerReminder(reminder);
+      }, totalTime);
+      
+      // 开始倒计时
+      startReminderCountdown(reminder);
+      
+      // 添加到提醒列表
+      reminders.push(reminder);
+      
+      // 保存提醒
+      saveReminders();
+      
+      // 更新UI
+      updateRemindersList();
+      updateNextReminder();
+      
+      // 显示添加成功提示
+      navigator.notification.toast('提醒已添加', {
+        duration: 'short',
+        position: 'center'
+      });
+    });
+    
+    // 清除全部按钮点击事件
+    clearAllBtn.addEventListener('click', function() {
+      if (reminders.length === 0) return;
+      
+      navigator.notification.confirm(
+        '确定要清除所有提醒吗？',
+        function(buttonIndex) {
+          if (buttonIndex === 1) {
+            // 停止所有定时器
+            reminders.forEach(reminder => {
+              if (reminder.timer) clearTimeout(reminder.timer);
+              if (reminder.countdownTimer) clearInterval(reminder.countdownTimer);
+            });
+            
+            // 清空提醒列表
+            reminders = [];
+            
+            // 保存提醒
+            saveReminders();
+            
+            // 更新UI
+            updateRemindersList();
+            updateNextReminder();
+            
+            // 显示提示
+            navigator.notification.toast('所有提醒已清除', {
+              duration: 'short',
+              position: 'center'
+            });
+          }
+        },
+        '确认',
+        ['确定', '取消']
+      );
+    });
+    
+    // 开始提醒倒计时
+    function startReminderCountdown(reminder) {
+      if (reminder.countdownTimer) {
+        clearInterval(reminder.countdownTimer);
+      }
+      
+      reminder.countdownTimer = setInterval(function() {
+        reminder.remainingTime -= 1000;
+        
+        // 对于闹钟类型，如果过了一天且循环开启，重新计算时间
+        if (reminder.type === 'alarm' && reminder.loop && reminder.remainingTime <= 0) {
+          reminder.remainingTime = 24 * 60 * 60 * 1000; // 24小时
+        }
+        
+        // 更新提醒列表
+        updateRemindersList();
+        
+        // 更新最近提醒
+        updateNextReminder();
+        
+        if (reminder.remainingTime <= 0 && !reminder.loop) {
+          clearInterval(reminder.countdownTimer);
+        }
+      }, 1000);
+    }
+    
+    // 关闭提醒弹窗
+    dismissBtn.addEventListener('click', function() {
+      reminderModal.classList.add('hidden');
+      document.body.classList.remove('overflow-hidden');
+      
+      // 获取当前触发的提醒
+      const currentReminderId = this.dataset.reminderId;
+      if (!currentReminderId) return;
+      
+      const currentReminder = reminders.find(r => r.id === currentReminderId);
+      if (!currentReminder) return;
+      
+      // 停止当前提醒的音效
+      const audio = new Audio(currentReminder.soundSrc);
+      audio.pause();
+      
+      // 如果启用了循环，重新开始倒计时
+      if (currentReminder.loop && currentReminder.isRunning) {
+        if (currentReminder.type === 'interval') {
+          currentReminder.remainingTime = currentReminder.totalTime;
+        } else if (currentReminder.type === 'doubleInterval') {
+          // 双间隔模式下切换间隔
+          currentReminder.currentInterval = currentReminder.currentInterval === 'A' ? 'B' : 'A';
+          // 更新总时间和剩余时间
+          currentReminder.totalTime = currentReminder.currentInterval === 'A' ? currentReminder.totalTimeA : currentReminder.totalTimeB;
+          currentReminder.remainingTime = currentReminder.totalTime;
+        } else {
+          // 闹钟类型循环，设置为24小时后
+          currentReminder.remainingTime = 24 * 60 * 60 * 1000;
+        }
+        
+        startReminderCountdown(currentReminder);
+        
+        currentReminder.timer = setTimeout(function() {
+          triggerReminder(currentReminder);
+        }, currentReminder.remainingTime);
+        
+        // 保存提醒
+        saveReminders();
+      } else {
+        // 停止当前提醒
+        stopReminder(currentReminderId);
+      }
+    });
+    
+    // 更新提醒列表
+    function updateRemindersList() {
+      activeRemindersCount.textContent = reminders.length;
+      
+      // 控制"无提醒"提示信息的显示
+      if (reminders.length === 0) {
+        noRemindersMessage.classList.remove('hidden');
+      } else {
+        noRemindersMessage.classList.add('hidden');
+      }
+      
+      // 清空列表
+      remindersList.innerHTML = '';
+      
+      // 按剩余时间排序
+      const sortedReminders = [...reminders].sort((a, b) => a.remainingTime - b.remainingTime);
+      
+      // 添加列表项
+      sortedReminders.forEach(reminder => {
+        // 显示类型和时间，为不同类型设置不同颜色
+        let typeText, timeText, typeColorClass;
+        
+        if (reminder.type === 'interval') {
+          typeText = '间隔提醒';
+          typeColorClass = 'bg-primary bg-opacity-20 text-primary';
+          timeText = `间隔: ${formatDuration(reminder.totalTime)}`;
+        } else if (reminder.type === 'doubleInterval') {
+          typeText = '双间隔循环';
+          typeColorClass = 'bg-secondary bg-opacity-20 text-secondary';
+          timeText = `循环: ${formatDuration(reminder.totalTimeA)} → ${formatDuration(reminder.totalTimeB)}`;
+        } else {
+          typeText = '定时闹钟';
+          typeColorClass = 'bg-accent bg-opacity-20 text-accent';
+          timeText = `时间: ${reminder.alarmHour.toString().padStart(2, '0')}:${reminder.alarmMinute.toString().padStart(2, '0')}`;
+        }
+        
+        const reminderItem = document.createElement('div');
+        reminderItem.className = 'bg-neutral rounded-lg p-4';
+        reminderItem.innerHTML = `
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-medium">${reminder.text}</span>
+            <div class="flex space-x-2">
+              <span class="text-xs px-2 py-0.5 rounded-full ${typeColorClass}">${typeText}</span>
+              <button class="toggle-reminder-btn text-sm ${(reminder.remainingTime <= 0 && !reminder.loop) ? 'text-blue-500' : (reminder.isRunning ? 'text-green-500' : 'text-gray-500')}" 
+                      data-id="${reminder.id}">
+                <i class="fa ${(reminder.remainingTime <= 0 && !reminder.loop) ? 'fa-refresh' : (reminder.isRunning ? 'fa-pause' : 'fa-play')}"></i>
+              </button>
+              <button class="reset-reminder-btn text-sm text-yellow-500" data-id="${reminder.id}">
+                <i class="fa fa-refresh"></i>
+              </button>
+              <button class="delete-reminder-btn text-sm text-red-500" data-id="${reminder.id}">
+                <i class="fa fa-trash"></i>
+              </button>
+            </div>
+          </div>
+          <div class="flex items-center justify-between">
+            <span class="text-sm text-gray-500">${timeText}</span>
+            <span class="text-sm font-medium ${reminder.remainingTime < 60000 ? 'text-red-500' : 'text-primary'}">
+              ${formatTime(reminder.remainingTime)}
+            </span>
+          </div>
+          <div class="w-full bg-gray-200 rounded-full h-1.5 mt-2">
+            <div class="h-1.5 rounded-full" style="width: ${(reminder.remainingTime / (reminder.type === 'alarm' && reminder.loop ? 24*60*60*1000 : reminder.totalTime)) * 100}%; 
+                  background-color: ${reminder.type === 'interval' ? '#3b82f6' : (reminder.type === 'doubleInterval' ? '#f97316' : '#10b981')}"></div>
+          </div>
+        `;
+        
+        remindersList.appendChild(reminderItem);
+      });
+      
+      // 添加事件监听
+      document.querySelectorAll('.toggle-reminder-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          toggleReminder(this.dataset.id);
+        });
+      });
+      
+      document.querySelectorAll('.reset-reminder-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          resetReminder(this.dataset.id);
+        });
+      });
+      
+      document.querySelectorAll('.delete-reminder-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+          deleteReminder(this.dataset.id);
+        });
+      });
+    }
+    
+    // 更新最近提醒
+    function updateNextReminder() {
+      if (reminders.length === 0) {
+        nextReminderCountdown.textContent = "00:00:00";
+        nextReminderText.textContent = "无活跃提醒";
+        return;
+      }
+      
+      // 找到最近的提醒
+      const nextReminder = [...reminders].sort((a, b) => a.remainingTime - b.remainingTime)[0];
+      
+      // 更新显示，为不同类型设置不同颜色
+      let countdownColor = 'text-primary';
+      if (nextReminder.type === 'doubleInterval') {
+        countdownColor = 'text-secondary';
+      } else if (nextReminder.type === 'alarm') {
+        countdownColor = 'text-accent';
+      }
+      
+      nextReminderCountdown.className = `text-4xl font-bold ${countdownColor} mb-2`;
+      nextReminderCountdown.textContent = formatTime(nextReminder.remainingTime);
+      nextReminderText.textContent = nextReminder.text;
+      
+      // 更新倒计时
+      if (nextReminderTimer) clearInterval(nextReminderTimer);
+      
+      nextReminderTimer = setInterval(function() {
+        // 重新获取最近的提醒
+        const updatedNextReminder = [...reminders].sort((a, b) => a.remainingTime - b.remainingTime)[0];
+        
+        if (updatedNextReminder) {
+          let updatedColor = 'text-primary';
+          if (updatedNextReminder.type === 'doubleInterval') {
+            updatedColor = 'text-secondary';
+          } else if (updatedNextReminder.type === 'alarm') {
+            updatedColor = 'text-accent';
+          }
+          
+          nextReminderCountdown.className = `text-4xl font-bold ${updatedColor} mb-2`;
+          nextReminderCountdown.textContent = formatTime(updatedNextReminder.remainingTime);
+          nextReminderText.textContent = updatedNextReminder.text;
+        } else {
+          clearInterval(nextReminderTimer);
+          nextReminderCountdown.className = "text-4xl font-bold text-primary mb-2";
+          nextReminderCountdown.textContent = "00:00:00";
+          nextReminderText.textContent = "无活跃提醒";
+        }
+      }, 1000);
+    }
+    
+    // 切换提醒状态（暂停/继续）或重新开始已结束的提醒
+    function toggleReminder(reminderId) {
+      const reminder = reminders.find(r => r.id === reminderId);
+      if (!reminder) return;
+      
+      // 检查是否是已结束的提醒（remainingTime <= 0 且不在循环中）
+      const isCompleted = reminder.remainingTime <= 0 && !reminder.loop;
+      
+      if (isCompleted) {
+        // 重新开始已结束的提醒
+        // 重置剩余时间
+        if (reminder.type === 'interval') {
+          reminder.remainingTime = reminder.totalTime;
+        } else if (reminder.type === 'doubleInterval') {
+          reminder.currentInterval = 'A'; // 从间隔A开始
+          reminder.totalTime = reminder.totalTimeA;
+          reminder.remainingTime = reminder.totalTimeA;
+        } else {
+          // 闹钟类型，计算明天同一时间
+          reminder.remainingTime = calculateAlarmTimeDifference(reminder.alarmHour, reminder.alarmMinute);
+        }
+        
+        reminder.isRunning = true;
+        
+        // 设置定时器
+        reminder.timer = setTimeout(function() {
+          triggerReminder(reminder);
+        }, reminder.remainingTime);
+        
+        // 开始倒计时
+        startReminderCountdown(reminder);
+      } else {
+        // 正常的暂停/继续逻辑
+        reminder.isRunning = !reminder.isRunning;
+        
+        if (reminder.isRunning) {
+          // 继续提醒
+          reminder.timer = setTimeout(function() {
+            triggerReminder(reminder);
+          }, reminder.remainingTime);
+          
+          startReminderCountdown(reminder);
+        } else {
+          // 暂停提醒
+          if (reminder.timer) clearTimeout(reminder.timer);
+          if (reminder.countdownTimer) clearInterval(reminder.countdownTimer);
+        }
+      }
+      
+      // 保存提醒
+      saveReminders();
+      
+      // 更新UI
+      updateRemindersList();
+      updateNextReminder();
+    }
+    
+    // 删除提醒
+    function deleteReminder(reminderId) {
+      navigator.notification.confirm(
+        '确定要删除这个提醒吗？',
+        function(buttonIndex) {
+          if (buttonIndex === 1) {
+            const index = reminders.findIndex(r => r.id === reminderId);
+            if (index === -1) return;
+            
+            const reminder = reminders[index];
+            
+            // 停止定时器
+            if (reminder.timer) clearTimeout(reminder.timer);
+            if (reminder.countdownTimer) clearInterval(reminder.countdownTimer);
+            
+            // 从列表中删除
+            reminders.splice(index, 1);
+            
+            // 保存提醒
+            saveReminders();
+            
+            // 更新UI
+            updateRemindersList();
+            updateNextReminder();
+          }
+        },
+        '确认',
+        ['确定', '取消']
+      );
+    }
+    
+    // 停止提醒
+    function stopReminder(reminderId) {
+      const index = reminders.findIndex(r => r.id === reminderId);
+      if (index === -1) return;
+      
+      const reminder = reminders[index];
+      
+      // 停止定时器
+      if (reminder.timer) clearTimeout(reminder.timer);
+      if (reminder.countdownTimer) clearInterval(reminder.countdownTimer);
+      
+      reminder.isRunning = false;
+      
+      // 保存提醒
+      saveReminders();
+      
+      // 更新UI
+      updateRemindersList();
+      updateNextReminder();
+    }
+    
+    // 重置提醒（重新开始计时）
+    function resetReminder(reminderId) {
+      const reminder = reminders.find(r => r.id === reminderId);
+      if (!reminder) return;
+      
+      // 停止当前定时器
+      if (reminder.timer) clearTimeout(reminder.timer);
+      if (reminder.countdownTimer) clearInterval(reminder.countdownTimer);
+      
+      // 重置剩余时间
+      if (reminder.type === 'interval') {
+        reminder.remainingTime = reminder.totalTime;
+      } else if (reminder.type === 'doubleInterval') {
+        reminder.currentInterval = 'A'; // 从间隔A开始
+        reminder.totalTime = reminder.totalTimeA;
+        reminder.remainingTime = reminder.totalTimeA;
+      } else {
+        // 闹钟类型，计算明天同一时间
+        reminder.remainingTime = calculateAlarmTimeDifference(reminder.alarmHour, reminder.alarmMinute);
+      }
+      
+      // 设置为运行状态
+      reminder.isRunning = true;
+      
+      // 设置新的定时器
+      reminder.timer = setTimeout(function() {
+        triggerReminder(reminder);
+      }, reminder.remainingTime);
+      
+      // 开始倒计时
+      startReminderCountdown(reminder);
+      
+      // 保存提醒
+      saveReminders();
+      
+      // 更新UI
+      updateRemindersList();
+      updateNextReminder();
+    }
+    
+    // 触发提醒
+    function triggerReminder(reminder) {
+      // 播放提醒音效
+      const audio = new Audio(reminder.soundSrc);
+      
+      // 检查音频是否已加载元数据
+      function checkAudioDuration() {
+        if (audio.duration > 0) {
+          // 音频时长已获取
+          const audioDuration = audio.duration;
+          const targetDuration = 60; // 1分钟
+          
+          // 如果音频时长小于1分钟，设置循环播放
+          if (audioDuration < targetDuration) {
+            // 计算需要循环的次数
+            const loopCount = Math.ceil(targetDuration / audioDuration);
+            
+            // 播放计数器
+            let playCount = 0;
+            
+            // 设置ended事件监听
+            audio.addEventListener('ended', function playNextLoop() {
+              playCount++;
+              
+              // 如果播放次数小于循环次数，继续播放
+              if (playCount < loopCount) {
+                audio.currentTime = 0;
+                audio.play().catch(error => {
+                  console.error('循环播放音效失败:', error);
+                });
+              } else {
+                // 达到循环次数，移除事件监听
+                audio.removeEventListener('ended', playNextLoop);
+              }
+            });
+          }
+          
+          // 开始播放
+          audio.play().catch(error => {
+            console.error('播放音效失败:', error);
+          });
+        } else {
+          // 音频元数据尚未加载，延迟重试
+          setTimeout(checkAudioDuration, 100);
+        }
+      }
+      
+      // 开始检查音频时长
+      checkAudioDuration();
+      
+      // 显示系统通知
+      if (window.cordova && window.cordova.plugins && window.cordova.plugins.notification) {
+        cordova.plugins.notification.local.schedule({
+          id: parseInt(reminder.id, 36),
+          title: '时间到了！',
+          text: reminder.text,
+          sound: reminder.soundSrc !== 'custom' ? reminder.soundSrc : null,
+          foreground: true
+        });
+      }
+      
+      // 设置提醒文本
+      reminderModalText.textContent = reminder.text;
+      
+      // 存储当前提醒ID
+      dismissBtn.dataset.reminderId = reminder.id;
+      
+      // 显示提醒弹窗，设置为对应的颜色
+      let modalColorClass, iconColorClass, buttonColorClass;
+      
+      if (reminder.type === 'interval') {
+        modalColorClass = 'bg-primary bg-opacity-20 text-primary';
+        iconColorClass = 'text-primary';
+        buttonColorClass = 'bg-primary hover:bg-blue-600';
+      } else if (reminder.type === 'doubleInterval') {
+        modalColorClass = 'bg-secondary bg-opacity-20 text-secondary';
+        iconColorClass = 'text-secondary';
+        buttonColorClass = 'bg-secondary hover:bg-orange-600';
+      } else {
+        modalColorClass = 'bg-accent bg-opacity-20 text-accent';
+        iconColorClass = 'text-accent';
+        buttonColorClass = 'bg-accent hover:bg-green-600';
+      }
+      
+      document.querySelector('#reminderModal .rounded-full').className = `inline-flex items-center justify-center w-16 h-16 rounded-full ${modalColorClass} mb-4`;
+      document.querySelector('#reminderModal .fa-bell').className = `fa fa-bell ${iconColorClass} text-2xl`;
+      dismissBtn.className = `${buttonColorClass} text-white font-bold py-3 px-6 rounded-lg transition-all duration-300`;
+      
+      // 显示提醒弹窗
+      reminderModal.classList.remove('hidden');
+      document.body.classList.add('overflow-hidden');
+      
+      // 如果没有启用循环，停止倒计时
+      if (!reminder.loop && reminder.countdownTimer) {
+        clearInterval(reminder.countdownTimer);
+      }
+    }
+    
+    // 保存提醒到本地存储
+    function saveReminders() {
+      // 过滤掉不能序列化的属性
+      const serializableReminders = reminders.map(reminder => {
+        const { timer, countdownTimer, audio, ...rest } = reminder;
+        return rest;
+      });
+      
+      localStorage.setItem('reminders', JSON.stringify(serializableReminders));
+    }
+    
+    // 从本地存储加载提醒
+    function loadReminders() {
+      const savedReminders = localStorage.getItem('reminders');
+      if (savedReminders) {
+        reminders = JSON.parse(savedReminders);
+        
+        // 恢复定时器
+        reminders.forEach(reminder => {
+          // 计算剩余时间
+          const now = new Date().getTime();
+          const originalTime = now - (reminder.totalTime - reminder.remainingTime);
+          const elapsedTime = now - originalTime;
+          reminder.remainingTime = Math.max(0, reminder.totalTime - elapsedTime);
+          
+          if (reminder.isRunning && reminder.remainingTime > 0) {
+            // 设置定时器
+            reminder.timer = setTimeout(function() {
+              triggerReminder(reminder);
+            }, reminder.remainingTime);
+            
+            // 开始倒计时
+            startReminderCountdown(reminder);
+          }
+        });
+      }
+    }
+  </script>
+</body>
+</html>
