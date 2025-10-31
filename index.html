@@ -242,7 +242,8 @@
             <option value="https://assets.mixkit.co/active_storage/sfx/2028/2028-preview.mp3">提示音 6 (叮咚)</option>
             <option value="custom">自定义音效</option>
           </select>
-          <input type="file" id="customSound" accept="audio/*" class="hidden" capture="environment">
+          <!-- 修复1：修改input类型和属性，确保安卓能识别 -->
+          <input type="file" id="customSound" accept="audio/*" class="hidden" capture>
           <button id="customSoundBtn" class="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed">
             <i class="fa fa-upload"></i>
           </button>
@@ -299,38 +300,11 @@
     </div>
   </div>
   
-  <!-- 音频元素 - 添加自动播放和循环属性以解决移动端声音问题 -->
-  <audio id="reminderSound" preload="auto" autoplay="false" loop="false"></audio>
+  <!-- 音频元素 -->
+  <audio id="reminderSound" preload="auto"></audio>
   
   <script>
-    // 移动端音频播放权限处理
     document.addEventListener('DOMContentLoaded', function() {
-      // 创建一个隐藏的音频上下文用于激活音频
-      let audioContext;
-      
-      // 触发用户交互以获取音频播放权限
-      function unlockAudio() {
-        if (audioContext) return;
-        
-        try {
-          audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          const buffer = audioContext.createBuffer(1, 1, 22050);
-          const source = audioContext.createBufferSource();
-          source.buffer = buffer;
-          source.connect(audioContext.destination);
-          source.start(0);
-          
-          // 标记音频已解锁
-          localStorage.setItem('audioUnlocked', 'true');
-        } catch (e) {
-          console.error('音频解锁失败:', e);
-        }
-      }
-      
-      // 监听任何用户交互以解锁音频
-      document.addEventListener('click', unlockAudio, { once: true });
-      document.addEventListener('touchstart', unlockAudio, { once: true });
-      
       // 获取DOM元素
       const reminderTypeRadios = document.querySelectorAll('input[name="reminderType"]');
       const intervalSettings = document.getElementById('intervalSettings');
@@ -560,21 +534,25 @@
         localStorage.setItem('selectedSound', this.value);
       });
       
-      // 自定义音效按钮点击事件 - 修复手机端点击无反应问题
+      // 修复2：优化自定义音效按钮点击事件，确保能触发文件选择
       customSoundBtn.addEventListener('click', function() {
-        // 对于安卓设备，使用特定的MIME类型过滤
-        if (/Android/i.test(navigator.userAgent)) {
-          customSoundInput.accept = 'audio/mpeg,audio/mp4,audio/wav,audio/ogg';
-        }
+        // 强制触发文件选择对话框
         customSoundInput.click();
+        
+        // 修复3：添加直接调用文件选择的备用方案
+        if (typeof customSoundInput.showPicker === 'function') {
+          customSoundInput.showPicker().catch(err => {
+            console.log('文件选择器调用失败:', err);
+          });
+        }
       });
       
-      // 自定义音效文件选择事件 - 修复手机端文件选择问题
+      // 修复4：增强文件选择处理逻辑
       customSoundInput.addEventListener('change', function(e) {
-        if (e.target.files && e.target.files[0]) {
+        if (e.target.files && e.target.files.length > 0) {
           const file = e.target.files[0];
           
-          // 验证文件是否为音频类型
+          // 验证文件类型
           if (!file.type.startsWith('audio/')) {
             alert('请选择音频文件（支持MP3、WAV、OGG等格式）');
             return;
@@ -591,19 +569,7 @@
           
           // 自动选择"自定义音效"选项
           soundSelect.value = 'custom';
-          
-          // 保存选择
-          localStorage.setItem('selectedSound', 'custom');
-          
-          // 测试播放以确保音频可用
-          const testAudio = new Audio(customSoundUrl);
-          testAudio.volume = 0.1; // 小声测试
-          testAudio.play().then(() => {
-            setTimeout(() => testAudio.pause(), 100);
-          }).catch(error => {
-            console.error('自定义音效测试播放失败:', error);
-            alert('所选音频无法播放，请尝试其他文件');
-          });
+          soundSelect.dispatchEvent(new Event('change'));
         }
       });
       
@@ -665,8 +631,6 @@
         
         // 创建音频元素
         const audio = new Audio(soundSrc);
-        // 解决移动端音频问题
-        audio.load();
         
         // 添加到提醒列表
         const reminder = {
@@ -1060,18 +1024,10 @@
         updateNextReminder();
       }
       
-      // 触发提醒 - 修复无声音问题
+      // 触发提醒
       function triggerReminder(reminder) {
-        // 确保音频上下文已激活（解决移动端自动播放限制）
-        if (audioContext && audioContext.state === 'suspended') {
-          audioContext.resume();
-        }
-        
         // 播放提醒音效
         const audio = reminder.audio;
-        
-        // 确保音量最大
-        audio.volume = 1.0;
         
         // 检查音频是否已加载元数据
         function checkAudioDuration() {
@@ -1105,22 +1061,9 @@
               });
             }
             
-            // 播放音频，处理移动端自动播放限制
-            audio.play().then(() => {
-              console.log('提醒音效播放成功');
-            }).catch(error => {
-              console.error('播放音效失败，尝试修复:', error);
-              
-              // 如果播放失败，尝试创建新的音频实例
-              const backupAudio = new Audio(audio.src);
-              backupAudio.volume = 1.0;
-              backupAudio.play().then(() => {
-                console.log('备用音频播放成功');
-                reminder.audio = backupAudio;
-              }).catch(err => {
-                console.error('备用音频播放也失败:', err);
-                alert('提醒时间到！但音效无法播放，请检查音量和应用权限');
-              });
+            // 开始播放
+            audio.play().catch(error => {
+              console.error('播放音效失败:', error);
             });
           } else {
             // 音频元数据尚未加载，延迟重试
